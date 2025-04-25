@@ -7,7 +7,7 @@ A simple task tracker app where you can add, complete, and organize tasks in cat
 - Add tasks with a due date.
 - Organize tasks into categories (e.g., Groceries, Work, etc.).
 - Track metrics for each task (e.g., how many times you did groceries this year).
-- Visualize task progress with a pie chart showing completed vs. pending tasks.
+- Soon: Visualize task progress with a chart showing completed vs. pending tasks.
 
 ## Technologies Used
 
