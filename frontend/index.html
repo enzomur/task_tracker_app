@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>📋 Task Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 2rem auto; max-width: 800px; padding: 1rem; }
     h1, h2 { text-align: center; }
@@ -13,6 +14,8 @@
     .bucket { margin-top: 2rem; }
     .filters { text-align: center; margin: 1rem 0; }
     .metrics { font-size: 0.9em; color: gray; }
+    .charts { display: flex; justify-content: space-between; }
+    .chart-container { width: 48%; }
   </style>
 </head>
 <body>
@@ -34,6 +37,17 @@
 
   <div id="taskList"></div>
 
+  <div class="charts">
+    <div class="chart-container">
+      <h2>Completion Count by Category</h2>
+      <canvas id="completionChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h2>Completed Tasks by Category</h2>
+      <canvas id="taskChart"></canvas>
+    </div>
+  </div>
+
   <script>
     let tasks = [];
     let view = 'daily';
@@ -45,13 +59,14 @@
         .then(data => {
           tasks = data;
           renderTasks();
+          updateCharts();
         })
         .catch(error => console.error('Error fetching tasks:', error));
     }
 
     // Add a new task
     function addTask() {
-      const bucket = document.getElementById('bucketInput').value.trim() || 'General';
+      const bucket = document.getElementById('bucketInput').value.trim().toLowerCase() || 'general';
       const text = document.getElementById('taskInput').value.trim();
       const date = document.getElementById('taskDate').value || new Date().toISOString().slice(0, 10);
 
@@ -72,20 +87,6 @@
       fetch(`http://localhost:3000/api/tasks/${id}/toggle`, { method: 'POST' })
         .then(() => fetchTasks())
         .catch(error => console.error('Error toggling task:', error));
-    }
-
-    // Reschedule a task
-    function rescheduleTask(id) {
-      const newDate = prompt("Enter new date (YYYY-MM-DD):");
-      if (newDate) {
-        fetch(`http://localhost:3000/api/tasks/${id}/reschedule`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: newDate })
-        })
-        .then(() => fetchTasks())
-        .catch(error => console.error('Error rescheduling task:', error));
-      }
     }
 
     // Delete a task
@@ -124,60 +125,117 @@
 
     // Render tasks based on the selected view
     function renderTasks() {
-    const list = document.getElementById('taskList');
-    list.innerHTML = '';
+      const list = document.getElementById('taskList');
+      list.innerHTML = '';
 
-    const filtered = tasks.filter(task => {
-      const today = new Date().toISOString().slice(0, 10);
-      if (view === 'daily') return task.date === today;
-      if (view === 'weekly') return isInCurrentWeek(task.date);
-      return true;
-    });
-
-    const grouped = filtered.reduce((acc, task) => {
-      if (!acc[task.bucket]) acc[task.bucket] = [];
-      acc[task.bucket].push(task);
-      return acc;
-    }, {});
-
-    for (let bucket in grouped) {
-      const container = document.createElement('div');
-      container.classList.add('bucket');
-      container.innerHTML = `<h2>${bucket}</h2>`;
-
-      grouped[bucket].forEach(task => {
-        const div = document.createElement('div');
-        div.className = 'task' + (task.done ? ' done' : '');
-        
-        // Display task with completion count and metrics
-        div.innerHTML = `
-          <span>
-            ${task.text} (${task.date})<br>
-            <span class="metrics">${getMetrics(task)}</span>
-          </span>
-          <span class="controls">
-            <button onclick="toggleTask(${task.id})">${task.done ? 'Undo' : 'Done'}</button>
-            <button onclick="rescheduleTask(${task.id})">📆</button>
-            <button onclick="deleteTask(${task.id})">❌</button>
-          </span>
-        `;
-        container.appendChild(div);
+      const filtered = tasks.filter(task => {
+        const today = new Date().toISOString().slice(0, 10);
+        if (view === 'daily') return task.date === today;
+        if (view === 'weekly') return isInCurrentWeek(task.date);
+        return true;
       });
 
-      list.appendChild(container);
-    }
-  }
+      const grouped = filtered.reduce((acc, task) => {
+        if (!acc[task.bucket]) acc[task.bucket] = [];
+        acc[task.bucket].push(task);
+        return acc;
+      }, {});
 
-  // Get task metrics: how many times completed
-  function getMetrics(task) {
-    const now = new Date();
-    const thisYear = now.getFullYear();
-    const completedThisYear = task.history.filter(d => new Date(d).getFullYear() === thisYear).length;
-    return `Completed ${completedThisYear} time(s) this year, ${task.history.length} total`;
-  }
+      for (let bucket in grouped) {
+        const container = document.createElement('div');
+        container.classList.add('bucket');
+        container.innerHTML = `<h2>${bucket}</h2>`;
+
+        grouped[bucket].forEach(task => {
+          const div = document.createElement('div');
+          div.className = 'task' + (task.done ? ' done' : '');
+          
+          div.innerHTML = `
+            <span>
+              ${task.text} (${task.date})<br>
+              <span class="metrics">${getMetrics(task)}</span><br>
+              <span>Expected Completion Date: ${task.date}</span><br>
+              <span>Completion Date: ${task.completed_date || 'Not completed yet'}</span>
+            </span>
+            <span class="controls">
+              <button onclick="toggleTask(${task.id})">${task.done ? 'Undo' : 'Done'}</button>
+              <button onclick="deleteTask(${task.id})">❌</button>
+            </span>
+          `;
+          container.appendChild(div);
+        });
+
+        list.appendChild(container);
+      }
+    }
+
+    // Update the charts with task completion data
+    function updateCharts() {
+      const categories = {};
+      const taskCompletionCounts = {};
+
+      tasks.forEach(task => {
+        if (task.done) {
+          categories[task.bucket] = (categories[task.bucket] || 0) + 1;
+          taskCompletionCounts[task.bucket] = (taskCompletionCounts[task.bucket] || 0) + 1;
+        }
+      });
+
+      // Completion Chart
+      const completionChart = new Chart(document.getElementById('completionChart'), {
+        type: 'bar',
+        data: {
+          labels: Object.keys(categories),
+          datasets: [{
+            label: 'Completed Tasks',
+            data: Object.values(categories),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          }
+        }
+      });
+
+      // Task Completion Chart
+      const taskChart = new Chart(document.getElementById('taskChart'), {
+        type: 'pie',
+        data: {
+          labels: Object.keys(taskCompletionCounts),
+          datasets: [{
+            label: 'Task Completion Rate',
+            data: Object.values(taskCompletionCounts),
+            backgroundColor: ['rgba(255, 99, 132, 0.2)', 'rgba(54, 162, 235, 0.2)', 'rgba(255, 206, 86, 0.2)'],
+            borderColor: ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)'],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'top',
+            },
+            tooltip: {
+              callbacks: {
+                label: function(tooltipItem) {
+                  return tooltipItem.label + ': ' + tooltipItem.raw + ' completed';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
     // Initial fetch of tasks
     fetchTasks();
   </script>
 </body>
 </html>
-

@@ -10,7 +10,8 @@ db.serialize(() => {
       bucket TEXT,
       date TEXT,
       done INTEGER,
-      history TEXT
+      history TEXT,
+      completed_date TEXT
     )
   `);
 });
